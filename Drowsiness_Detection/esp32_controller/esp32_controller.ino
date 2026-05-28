@@ -89,7 +89,82 @@ void makeCall(String gpsLocation) {
   // 2. Make the phone call
   Serial.println("Dialing voice call to +918972250166 (ATD)...");
   Serial2.println("ATD+918972250166;");
-  printGSMResponse(2000);
+  
+  // Wait a moment for call initiation to register on the GSM module
+  delay(2000);
+  
+  // Poll call status until call is connected or ended
+  Serial.println("Monitoring call status...");
+  bool callConnected = false;
+  unsigned long callStart = millis();
+  
+  // Monitor call status for up to 40 seconds
+  while (millis() - callStart < 40000) {
+    // Send CLCC command to check current call list
+    Serial2.println("AT+CLCC");
+    
+    // Read the response from SIM800L
+    String response = "";
+    unsigned long readStart = millis();
+    while (millis() - readStart < 800) {
+      while (Serial2.available()) {
+        char c = Serial2.read();
+        response += c;
+      }
+      delay(10);
+    }
+    
+    Serial.print("[CLCC Poll] ");
+    Serial.println(response);
+    
+    // Check if the response indicates the call is connected (stat = 0)
+    int idx = response.indexOf("+CLCC:");
+    if (idx != -1) {
+      // Parse +CLCC: <id>,<dir>,<stat>,...
+      int comma1 = response.indexOf(',', idx);
+      if (comma1 != -1) {
+        int comma2 = response.indexOf(',', comma1 + 1);
+        if (comma2 != -1) {
+          int comma3 = response.indexOf(',', comma2 + 1);
+          if (comma3 != -1) {
+            String statStr = response.substring(comma2 + 1, comma3);
+            statStr.trim();
+            if (statStr == "0") {
+              callConnected = true;
+              Serial.println("Call connected! Silencing the buzzer.");
+              digitalWrite(BUZZER, LOW);
+              break;
+            } else {
+              Serial.print("Call active but not yet answered. State code: ");
+              Serial.println(statStr);
+            }
+          }
+        }
+      }
+    }
+    
+    // If call failed or ended
+    if (response.indexOf("NO CARRIER") != -1 || 
+        response.indexOf("BUSY") != -1 || 
+        response.indexOf("NO ANSWER") != -1 || 
+        response.indexOf("NO DIALTONE") != -1) {
+      Serial.println("Call ended or failed to connect. Silencing the buzzer.");
+      digitalWrite(BUZZER, LOW);
+      break;
+    }
+    
+    // If command returned OK but there are no +CLCC entries, the call has ended
+    if (response.indexOf("OK") != -1 && response.indexOf("+CLCC:") == -1) {
+      Serial.println("No active calls detected. Silencing the buzzer.");
+      digitalWrite(BUZZER, LOW);
+      break;
+    }
+    
+    delay(1000); // Check status every second
+  }
+  
+  // Safety fallback: ensure buzzer is stopped if we exited the loop
+  digitalWrite(BUZZER, LOW);
   
   Serial.println("--- EMERGENCY ALERT CONCLUDED ---");
 }

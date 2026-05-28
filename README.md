@@ -102,16 +102,36 @@ We need to install the programs that make our project smart.
 
 ---
 
+## 🛰️ Geolocation Testing & Diagnostic Utility
+
+To ensure your system is tracking your physical location with extreme precision, a standalone diagnostic script is included in your workspace: **`test_windows_gps.py`**.
+
+### How to Run the Diagnostic:
+1. Navigate to the project directory in your terminal:
+   ```bash
+   cd Drowsiness_Detection
+   ```
+2. Run the test script:
+   ```bash
+   python test_windows_gps.py
+   ```
+3. What happens?
+   * It queries the native **Windows Location Services API** (using a safe background PowerShell request) to obtain high-accuracy coordinates using Wi-Fi SSID triangulation.
+   * If Windows Location Services are disabled or unavailable, it instantly performs a **fallback test** using your internet IP address (`ipinfo.io`).
+   * It outputs your coordinates and automatically generates a clickable Google Maps link!
+
+---
+
 ## 🧠 How the AI Talks to the Hardware (Under the Hood)
 
 Curious about how your laptop actually stops the motor? Here is the exact process happening behind the scenes:
 
 1. **The Eyes (Camera & AI):** Python uses your webcam to look at your face. MediaPipe maps out exactly where your eyelids are.
-2. **The GPS Location:** When the Python script starts, it automatically grabs your laptop's current GPS location (Latitude and Longitude) over the internet!
-3. **The Decision:** Python constantly measures the distance between your top and bottom eyelids. 
+2. **The GPS Location (Hybrid Engine):** When the Python script starts, it fetches your high-accuracy GPS coordinates via the Windows native `GeoCoordinateWatcher` (Wi-Fi/cellular triangulation). If Windows Location Services are disabled, it automatically falls back to coarse IP-based geolocation.
+3. **The Decision:** Python constantly measures the Eye Aspect Ratio (EAR). 
    - If your eyes are open, Python sends the letter **`N`** (for Normal) through the USB cable.
    - If your eyelids touch for more than 3 seconds (Strike 1 and 2), Python sends **`W`** (Warning).
-   - If you get 3 Strikes, Python panics and sends **`E`** (Emergency) along with your live GPS location through the USB cable! (e.g., `E28.61,77.20`)
+   - If you get 3 Strikes, Python sends **`E`** (Emergency) along with your precise latitude and longitude coordinates through the USB cable! (e.g., `E21.8797,87.7586`)
 4. **The Communication (Serial):** The USB cable acts as a bridge (called "Serial Communication") between your big laptop and the tiny ESP32 brain.
 5. **The Reaction (ESP32):** The ESP32 is always listening. 
    - When it hears **`N`**, it turns the **Green LED ON** and **Red LED OFF**, and tells the L298N Motor Driver to keep the motor spinning at full speed.
@@ -122,6 +142,28 @@ Curious about how your laptop actually stops the motor? Here is the exact proces
      - Turns the buzzer on.
      - Uses `AT` commands to tell the SIM800L module to immediately send an SMS with a Google Maps link of your location!
      - Dials your emergency contact phone number!
+
+---
+
+## 🔊 Speaker & Microphone Troubleshooting (SIM800L Audio)
+
+If you are using a **KL 8-ohm 0.5W Speaker** and a **Robozar Electret Microphone** with your SIM800L module for calling, verify the following connection rules to get them working:
+
+### 🎤 1. Electret Microphone (Robozar 5x6mm Capsule)
+Electret microphone capsules are **polarized**. If they are wired backward, they will not capture any sound.
+* **Identify Polarity:** Turn the mic capsule over to see the two solder pads on the bottom. One of the pads has small copper paths physically connected to the **outer metal case**. This pad is the **Negative (-) terminal**. The isolated pad is the **Positive (+) terminal**.
+* **Wiring:** 
+  * Connect the **Positive (+) pad** to the **SIM800L MIC+** pin.
+  * Connect the **Negative (-) pad** to the **SIM800L MIC-** pin.
+* *Do not connect the microphone directly to the ESP32 analog pins (it lacks bias voltage and its output signal is only a few millivolts, requiring a preamplifier).*
+
+### 🔈 2. Dynamic Speaker (8-ohm 0.5W)
+The SIM800L has an on-board differential amplifier designed to drive a small 8-ohm speaker.
+* **Wiring:** 
+  * Connect one speaker wire to the **SIM800L SPK+** pin.
+  * Connect the other speaker wire to the **SIM800L SPK-** pin.
+* ⚠️ **WARNING:** Never connect `SPK-` to the system ground (`GND`) or any other common ground rail. The SIM800L SPK outputs are differential; grounding one of them will short-circuit the internal audio amplifier and permanently destroy the audio driver of the SIM800L.
+* *Do not connect an 8-ohm speaker directly to an ESP32 GPIO pin. At 3.3V, an 8-ohm speaker draws over 400mA, which is 10 times the safe limit (40mA) of the ESP32 pin and will fry the microcontroller.*
 
 ---
 

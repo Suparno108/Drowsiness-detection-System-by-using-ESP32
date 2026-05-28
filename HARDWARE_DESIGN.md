@@ -69,8 +69,8 @@ The circuit diagram below details every connection, passive component, and power
 | **ESP32 NodeMCU** | `GPIO19` | **Red LED** | Anode (via Resistor $R_6$) | Warning Indicator (ON = Drowsy) |
 | **Green LED** | Cathode | **Common Ground** | `GND` | LED Ground Connection |
 | **Red LED** | Cathode | **Common Ground** | `GND` | LED Ground Connection |
-| **ESP32 NodeMCU** | `TXD0 (GPIO1)` | **SIM800L Module** | `RXD` (via $R_2$ / $R_3$) | UART TX (Requires 2.8V conversion) |
-| **ESP32 NodeMCU** | `RXD0 (GPIO3)` | **SIM800L Module** | `TXD` (direct or via $R_4$) | UART RX (ESP32 is 3.3V, SIM800L is 2.8V) |
+| **ESP32 NodeMCU** | `TXD2 (GPIO17)` | **SIM800L Module** | `RXD` (via $R_2$ / $R_3$) | UART TX (Requires 2.8V conversion) |
+| **ESP32 NodeMCU** | `RXD2 (GPIO16)` | **SIM800L Module** | `TXD` (direct or via $R_4$) | UART RX (ESP32 is 3.3V, SIM800L is 2.8V) |
 | **L298N Module** | `VS` (12V) | **12V Source** | Fuse $F_1$ Output | High-voltage motor power rail |
 | **L298N Module** | `GND` | **Common Ground** | `GND` | Power Ground Connection |
 | **L298N Module** | `VSS` (5V) | **LM2596 Buck Out** | `OUT+` (5V) | Logic circuitry supply voltage |
@@ -108,9 +108,9 @@ To prevent component failures under peak loads (especially during GSM transmissi
 Using active modules directly without decoupling or level-shifting passives will result in erratic microcontrollers, fried pins, or failure of the GSM module to register on the cellular network.
 
 ```
-       [ESP32 TXD0 (3.3V)] --- [ 1kΩ Resistor ] ---+--- [SIM800L RXD (2.8V Level)]
+       [ESP32 TXD2 (3.3V)] --- [ 1kΩ Resistor ] ---+--- [SIM800L RXD (2.8V Level)]
                                                    |
-                                              [ 2.2kΩ Resistor ]
+                                               [ 2.2kΩ Resistor ]
                                                    |
                                                  [GND]
 ```
@@ -124,12 +124,12 @@ Using active modules directly without decoupling or level-shifting passives will
 2. **SIM800L RX Line Level Shifter Divider ($R_2$, $R_3$)**:
    - **$R_2$ Value**: $1\text{ k}\Omega$, $0.125\text{W}$, 1% metal film.
    - **$R_3$ Value**: $2.2\text{ k}\Omega$, $0.125\text{W}$, 1% metal film.
-   - **Placement**: $R_2$ in series between ESP32 `TXD0` (GPIO1) and SIM800L `RXD`. $R_3$ connected from SIM800L `RXD` to `GND`.
+   - **Placement**: $R_2$ in series between ESP32 `TXD2` (GPIO17) and SIM800L `RXD`. $R_3$ connected from SIM800L `RXD` to `GND`.
    - **Rationale**: Steps down the 3.3V output level of the ESP32 TX pin to an optimal $2.26\text{V}$ (logic high threshold for SIM800L is 2.8V nominal, with a maximum toleration of 3.0V). This prevents thermal degradation of the SIM800L UART core.
 
 3. **SIM800L TX Protection Resistor ($R_4$)**:
    - **Value**: $220\ \Omega$, $0.125\text{W}$, 5% tolerance.
-   - **Placement**: Connected in series between SIM800L `TXD` and ESP32 `RXD0` (GPIO3).
+   - **Placement**: Connected in series between SIM800L `TXD` and ESP32 `RXD2` (GPIO16).
    - **Rationale**: Limits any potential high-state cross-talk currents during startup.
 
 4. **SIM800L VCC Bulk Decoupling Capacitor ($C_1$)**:
@@ -269,3 +269,33 @@ Before applying power to the assembled system, perform the following verificatio
   With the battery disconnected, measure resistance between the `12V`, `5V`, `4V` rails and the `GND` bus. The meter should display a high, non-zero resistance. If it reads $<100\ \Omega$, check for solder bridges or component failures.
 - [ ] **Check 3: Ground Loop Prevention**  
   Confirm that the L298N ground, ESP32 ground, buck grounds, and SIM800L ground are all tied back to a single common node.
+
+---
+
+## 10. Safe Audio Amplification & Volume Control Integration (PAM8403)
+
+To connect the SIM800L's high-power audio outputs to an external single-ended audio amplifier (like the PAM8403) with manual volume control (via a 10K Potentiometer) without short-circuiting the system, you must prevent the SIM800L's differential output pin `SPK-` from being grounded. Because the SIM800L's `SPK+` and `SPK-` are Bridge-Tied Load (BTL) differential signals with a ~2.0V DC offset, grounding `SPK-` or connecting it directly to a single-ended amplifier's ground will cause immediate silicon latch-up, high currents, and permanent damage to the SIM800L (fusing the RXD and TXD pins inside the module).
+
+### Corrected & Safe Amplified Wiring Diagram
+To do this safely, you must isolate the DC bias by placing a **1µF to 10µF AC-coupling capacitor** in series with `SPK+`, while keeping `SPK-` **completely disconnected and floating**.
+
+| Device / Signal | From Pin | Connected To | Details |
+| :--- | :--- | :--- | :--- |
+| **Serial Bus** | ESP32 `GPIO17 (TX2)` | SIM800L `RXD` | Cross-connected (9600 Baud) |
+| **Serial Bus** | ESP32 `GPIO16 (RX2)` | SIM800L `TXD` | Cross-connected (9600 Baud) |
+| **Bypass Cap** | 470µF 16V Capacitor `(+)` | SIM800L `VCC` | Parallel across GSM power rail |
+| **Bypass Cap** | 470µF 16V Capacitor `(-)` | SIM800L `GND` | Parallel across GSM power rail |
+| **Audio Input** | SIM800L `SPK+` | **1µF to 10µF Capacitor (+)** | Blocks DC offset voltage |
+| **Audio Input** | **1µF to 10µF Capacitor (-)** | Potentiometer **Left Pin** | Audio Signal (AC-coupled) |
+| **Audio Input** | SIM800L `SPK-` | **LEAVE FLOATING** | **DO NOT CONNECT TO ANYTHING** |
+| **Volume Ctrl**| Common `GND` | Potentiometer **Right Pin** | Audio Reference |
+| **Volume Ctrl**| Potentiometer **Middle Pin**| PAM8403 `L (LIN+)` | Wiper Output |
+| **Volume Ctrl**| Common `GND` | PAM8403 `T (LIN-)` | Amplifier Input Ground |
+| **Amplifier**  | PAM8403 `OUT+` | Speaker `(+)` | Amplified Output |
+| **Amplifier**  | PAM8403 `OUT-` | Speaker `(-)` | Amplified Output |
+| **Common GND** | ESP32, SIM800L, PAM8403 | Common Star `GND` | **Must all be tied together** |
+
+### Critical Hardware Safety Rules:
+1. **The 470µF 16V Capacitor Placement**: The **470µF 16V** capacitor must be placed **parallel across the SIM800L's power input (VCC and GND)**. It provides a vital local reservoir to absorb the 2.0A GSM transmission pulses, preventing voltage brownouts and ESP32 resets. **Do not** place this large capacitor in series with the audio signal, as it will cause a damagingly loud turn-on "pop" through your speaker.
+2. **Audio Series Capacitor**: Use a small **1µF to 10µF** capacitor in series with `SPK+` to filter out the DC component safely.
+3. **Differential Isolation**: Keep `SPK-` completely floating. Grounding it or connecting it to the potentiometer/amplifier ground rail bypasses the differential driver, shorting the internal audio output and permanently destroying the SIM800L.
